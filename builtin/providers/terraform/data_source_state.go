@@ -393,6 +393,50 @@ func dataSourceRemoteState() *schema.Resource {
 							Type:     schema.TypeString,
 							Optional: true,
 						},
+						"namespace": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"service_account": {
+							Type:     schema.TypeBool,
+							Optional: true,
+						},
+						"load_config_file": {
+							Type:     schema.TypeBool,
+							Optional: true,
+						},
+						"host": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"client_certificate": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"client_key": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"cluster_ca_certificate": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"config_path": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"config_context": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"config_context_auth_info": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"config_context_cluster": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
 					},
 				},
 			},
