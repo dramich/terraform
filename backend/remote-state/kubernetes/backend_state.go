@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/state"
@@ -17,7 +18,7 @@ func (b *Backend) States() ([]string, error) {
 
 	secrets, err := b.k8sClient.CoreV1().Secrets(b.namespace).List(
 		metav1.ListOptions{
-			LabelSelector: terraStateLabel + "=true",
+			LabelSelector: terraState + "=true",
 		},
 	)
 	if err != nil {
@@ -25,11 +26,10 @@ func (b *Backend) States() ([]string, error) {
 	}
 
 	for _, secret := range secrets.Items {
-		if name, ok := parseSecretName(secret.Name); ok && name != backend.DefaultStateName {
+		if name, ok := b.parseSecretName(secret.Name); ok && name != backend.DefaultStateName {
 			states = append(states, name)
 		}
 	}
-
 	sort.Strings(states[1:])
 	return states, nil
 }
@@ -78,12 +78,12 @@ func (b *Backend) State(name string) (state.State, error) {
 
 				Error message: %q
 				Lock ID (gen): %v
-				Lock file Name: %v
+				Lock Secret Name: %v
 
 				You may have to force-unlock this state in order to use it again.
 				The Kubernetes backend acquires a lock during initialization to ensure
 				the initial state file is created.`
-				return fmt.Errorf(unlockErrMsg, baseErr, err.Error(), lockID, createLockName(c.workspace))
+				return fmt.Errorf(unlockErrMsg, baseErr, err.Error(), lockID, c.createLockName())
 			}
 
 			return baseErr
@@ -113,9 +113,10 @@ func (b *Backend) remoteClient(name string) (*RemoteClient, error) {
 	}
 
 	client := &RemoteClient{
-		k8sClient: b.k8sClient,
-		namespace: b.namespace,
-		workspace: name,
+		k8sClient:  b.k8sClient,
+		namespace:  b.namespace,
+		nameSuffix: b.nameSuffix,
+		workspace:  name,
 	}
 
 	return client, nil
@@ -125,10 +126,22 @@ func (b *Backend) client() *RemoteClient {
 	return &RemoteClient{}
 }
 
-const errStateUnlock = `
-Error unlocking k8s state. Lock ID: %s
-
-Error: %s
-
-You may have to force-unlock this state in order to use it again.
-`
+// parseSecretName pulls apart a secret name to return the workspace from the name.
+func (b *Backend) parseSecretName(secret string) (string, bool) {
+	tarraPrefix := terraState + "-"
+	fullSuffix := "-" + b.nameSuffix
+	if strings.HasPrefix(secret, tarraPrefix) {
+		// Drop terrastate- from the secret
+		s := strings.TrimPrefix(secret, tarraPrefix)
+		// if all we have left is the nameSuffix it's 'default' workspace
+		if s == b.nameSuffix {
+			return "default", true
+		}
+		// Check secret name is <workspace>-nameSuffix
+		if strings.HasSuffix(s, fullSuffix) {
+			s2 := strings.TrimSuffix(s, fullSuffix)
+			return s2, true
+		}
+	}
+	return "", false
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	multierror "github.com/hashicorp/go-multierror"
+	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/state"
 	"github.com/hashicorp/terraform/state/remote"
 	corev1 "k8s.io/api/core/v1"
@@ -18,20 +19,19 @@ import (
 )
 
 const (
-	terraState      = "terrastate-"
-	terraLock       = "terralock-"
-	terraStateLabel = "terrastate"
-	terraLockLabel  = "tslock"
+	terraState = "terrastate"
+	terraLock  = "terralock"
 )
 
 type RemoteClient struct {
-	k8sClient kubernetes.Interface
-	namespace string
-	workspace string
+	k8sClient  kubernetes.Interface
+	namespace  string
+	nameSuffix string
+	workspace  string
 }
 
 func (c *RemoteClient) Get() (payload *remote.Payload, err error) {
-	sName := createSecretName(c.workspace)
+	sName := c.createSecretName()
 	secret, err := c.k8sClient.CoreV1().Secrets(c.namespace).Get(sName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -55,7 +55,7 @@ func (c *RemoteClient) Get() (payload *remote.Payload, err error) {
 }
 
 func (c *RemoteClient) Put(data []byte) error {
-	sName := createSecretName(c.workspace)
+	sName := c.createSecretName()
 
 	payload, err := compressState(data)
 	if err != nil {
@@ -66,7 +66,7 @@ func (c *RemoteClient) Put(data []byte) error {
 	sData[sName] = payload
 
 	label := make(map[string]string)
-	label[terraStateLabel] = "true"
+	label[terraState] = "true"
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sName,
@@ -88,7 +88,7 @@ func (c *RemoteClient) Put(data []byte) error {
 
 // Delete the state secret
 func (c *RemoteClient) Delete() error {
-	sName := createSecretName(c.workspace)
+	sName := c.createSecretName()
 
 	err := c.deleteSecret(sName)
 	if err != nil {
@@ -100,13 +100,13 @@ func (c *RemoteClient) Delete() error {
 }
 
 func (c *RemoteClient) Lock(info *state.LockInfo) (string, error) {
-	lName := createLockName(c.workspace)
+	lName := c.createLockName()
 
 	sData := make(map[string]string)
 	sData["info"] = string(info.Marshal())
 
 	label := make(map[string]string)
-	label[terraLockLabel] = "true"
+	label[terraLock] = "true"
 	secret := corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      lName,
@@ -138,7 +138,7 @@ func (c *RemoteClient) Lock(info *state.LockInfo) (string, error) {
 }
 
 func (c *RemoteClient) Unlock(id string) error {
-	lName := createLockName(c.workspace)
+	lName := c.createLockName()
 
 	lockErr := &state.LockError{}
 
@@ -190,6 +190,22 @@ func (c *RemoteClient) deleteSecret(name string) error {
 	return c.k8sClient.CoreV1().Secrets(c.namespace).Delete(name, delOps)
 }
 
+func (c *RemoteClient) createSecretName() string {
+	// If the workspace is 'default' don't include it in the name
+	if c.workspace == backend.DefaultStateName {
+		return strings.Join([]string{terraState, c.nameSuffix}, "-")
+	}
+	return strings.Join([]string{terraState, c.workspace, c.nameSuffix}, "-")
+}
+
+func (c *RemoteClient) createLockName() string {
+	// If the workspace is 'default' don't include it in the name
+	if c.workspace == backend.DefaultStateName {
+		return strings.Join([]string{terraLock, c.nameSuffix}, "-")
+	}
+	return strings.Join([]string{terraLock, c.workspace, c.nameSuffix}, "-")
+}
+
 func compressState(data []byte) ([]byte, error) {
 	b := new(bytes.Buffer)
 	gz := gzip.NewWriter(b)
@@ -213,34 +229,4 @@ func uncompressState(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return b.Bytes(), nil
-}
-
-func createSecretName(s string) string {
-	return terraState + s
-}
-
-// parseSecretName takes in the secret and parses it. Validates it starts with
-// "terrastate-" and has an ending.
-func parseSecretName(secret string) (string, bool) {
-	if strings.HasPrefix(secret, terraState) {
-		pieces := strings.Split(secret, terraState)
-		if len(pieces) == 2 && pieces[0] == "" {
-			return pieces[1], true
-		}
-	}
-	return "", false
-}
-
-func createLockName(s string) string {
-	return terraLock + s
-}
-
-func parseLockName(s string) (string, bool) {
-	if strings.HasPrefix(s, terraLock) {
-		pieces := strings.Split(s, terraLock)
-		if len(pieces) == 2 && pieces[0] == "" {
-			return pieces[1], true
-		}
-	}
-	return "", false
 }

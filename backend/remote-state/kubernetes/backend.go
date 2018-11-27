@@ -23,6 +23,29 @@ import (
 func New() backend.Backend {
 	s := &schema.Backend{
 		Schema: map[string]*schema.Schema{
+			"key": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "Suffix for the name of the state secret.",
+			},
+			"namespace": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KUBE_NAMESPACE", "default"),
+				Description: "Namespace to save the secret in.",
+			},
+			"service_account": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KUBE_SERVICE_ACCOUNT", false),
+				Description: "Use a service account assigned to a pod.",
+			},
+			"load_config_file": {
+				Type:        schema.TypeBool,
+				Optional:    true,
+				DefaultFunc: schema.EnvDefaultFunc("KUBE_LOAD_CONFIG_FILE", true),
+				Description: "Load local kubeconfig.",
+			},
 			"host": {
 				Type:        schema.TypeString,
 				Optional:    true,
@@ -99,24 +122,6 @@ func New() backend.Backend {
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_TOKEN", ""),
 				Description: "Token to authentifcate an service account",
 			},
-			"load_config_file": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("KUBE_LOAD_CONFIG_FILE", true),
-				Description: "Load local kubeconfig.",
-			},
-			"namespace": {
-				Type:        schema.TypeString,
-				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("KUBE_NAMESPACE", "default"),
-				Description: "Namespace to save the secret in.",
-			},
-			"service_account": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				DefaultFunc: schema.EnvDefaultFunc("KUBE_SERVICE_ACCOUNT", false),
-				Description: "Use a service account assigned to a pod.",
-			},
 		},
 	}
 
@@ -129,8 +134,9 @@ type Backend struct {
 	*schema.Backend
 
 	// The fields below are set from configure
-	k8sClient kubernetes.Interface
-	namespace string
+	k8sClient  kubernetes.Interface
+	namespace  string
+	nameSuffix string
 }
 
 func (b *Backend) configure(ctx context.Context) error {
@@ -195,6 +201,7 @@ func (b *Backend) configure(ctx context.Context) error {
 
 	b.k8sClient = client
 	b.namespace = data.Get("namespace").(string)
+	b.nameSuffix = data.Get("key").(string)
 
 	return nil
 }
